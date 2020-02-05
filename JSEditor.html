@@ -1,0 +1,816 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta content="text/html; charset=utf-8" http-equiv="content-type"/>
+    <meta content="user-scalable=0;" name="viewport" />
+    <title>JS 编辑器</title>
+  </head>
+  <body bgcolor="silver" onload="loaded()">
+    <noscript>
+      <mark id="noscriptWarning">您的浏览器不支持JavaScript，请更换浏览器。</mark>
+    </noscript>
+    <script src="addon/jsonformat.js"></script>
+    <script type="text/javascript" defer="defer">
+    var row;
+    var code;
+    var codeLength=0;
+    var colorSelected=()=>{};
+    var cursorPos=NaN;
+    var searchRes=[];
+    function ide(n){
+      return document.getElementById(n);
+    }
+    function codeFocus(){
+      code.selectionStart=code.selectionEnd=cursorPos;
+      code.focus();
+    }
+    function autoSave(){
+      //if(code.value!=localStorage.getItem("F-JSEditor-code"))
+      localStorage.setItem("F-JSEditor-code",code.value);
+    }
+    function loaded(){
+    try{
+      row=ide("row");
+      code=ide("code");
+      row.innerHTML="1";
+      
+      let casave=ide("canAutoSave");
+      if(localStorage){
+        casave.style.color="green";
+        casave.innerText="您的文档将每隔5秒自动保存一次";
+        let c=localStorage.getItem("F-JSEditor-code");
+        if(c&&c!=code.value){
+          if(confirm("是否恢复上次保存内容？"))
+            code.value=c
+        }
+        setInterval("autoSave()",5000);
+      }else{
+        casave.innerText="您的浏览器不支持自动保存！"
+        casave.style.color="red"
+      }
+      input_()
+      let newchar=ide("newChar");
+      let newtool=ide("toolItem");
+      const charlist=[
+        "{}","[]","()","|","\"\"","''","\\",";","<",">"
+      ]
+      const toolList={
+        insertColor:"插入颜色",
+        insertChar:"插入字符",
+        insertUUID:"插入UUID",
+        search:"查找/替换"
+      }
+      for(let o of charlist){
+        let n=newchar.cloneNode(true);
+        n.innerText=o;
+        n.style.display="inline"
+        newchar.parentNode.appendChild(n);
+      }
+      for(let i in toolList){
+        (function(){
+        let n=newtool.cloneNode(true);
+        n.firstChild.innerText=toolList[i];
+        n.style.display="block";
+        n.addEventListener("click",()=>{
+          showTools(false);
+          cursorPos=code.selectionStart;
+          eval(i+"()")
+        });
+        newtool.parentNode.appendChild(n);
+        })(i)
+      }
+      bubble("hello!")
+    }catch(er){alert(er)}
+    }
+    function input_(ev){//代码被修改
+    try{
+      let scrollTop_=row.scrollTop;
+      if(code.value.length==codeLength+1){
+        let step=0;
+        let v=code.value;
+        let p=code.selectionStart;
+        let f=v.charAt(p-1);
+        let l=v.charAt(p);
+        function setWhiteSpace(ins){
+          let before=v.substring(0,p-1);
+          let foo=before.split("\n").pop();//最后一个换行后的字符
+          if(foo.charAt(0)==" "){
+            let ws=foo.match(/ +/)[0];
+            if(ins)insert(p,ws)
+            else return ws;
+          }
+          else if(!ins)return ""
+        }
+        let j=[
+          v.substring(p-2,p+1),
+          v.substring(p-2,p)
+        ]
+        if(j[0]=="{\n}"||j[0]=="[\n]"||j[0]=="(\n)"){
+          let s=setWhiteSpace();
+          //alert(JSON.stringify(s));
+          let slth=s.length;
+          s+="  \n"+s;//缩进
+          insert(p,s);
+          step=-slth-1
+        }
+        else if(j[1]=="{\n"||j[1]=="[\n"||j[1]=="(\n"){
+          let s=setWhiteSpace();
+          s+="  ";
+          insert(p,s);
+        }
+        else if(f=="\n"){
+          setWhiteSpace(true);
+        }
+        function insert(cut,str){//index
+          let f=v.substring(0,cut);
+          let l=v.substring(cut);
+          code.value=f+str+l;
+          p+=str.length;
+          code.selectionEnd=code.selectionStart=p;
+        }
+        code.selectionEnd=code.selectionStart=p+step;
+        code.scrollTop=scrollTop_;
+      }
+      codeLength=code.value.length;
+      var rows=code.value.match(/\n/g);
+      if(rows===null){
+        row.value="1"
+      }else{
+        rows=rows.length+1
+        var cRows=row.value.split("\n");
+        var h=cRows.length;
+        if(h<rows){
+          for(var i=h+1;i<=rows;i++){
+            row.value+="\n"+i;
+          }
+        }else if(h>rows){
+          row.value=cRows.slice(0,rows).join("\n");
+        }
+        row.cols=row.value.substring(
+          row.value.lastIndexOf("\n")).length-1
+        if(row.cols<2)row.cols=2
+      }
+    }catch(err){alert(err)}
+    }
+    //End input
+    function scroll_(){
+      row.scrollTop=code.scrollTop;
+    }
+    function run(){
+      try{
+      let c=ide("console");
+      let js=ide('output');
+      js.innerHTML="";
+      let iserr=false;
+      let lastdiv;
+      
+      function print(r){
+        let color;
+        const colors={
+          "string":"white",
+          "number":"olive",
+          "function":"cyan",
+          "object":"limegreen",
+          "boolean":"skyblue",
+          "undefined":"grey"
+        }
+        color=colors[typeof r];
+        if(iserr)color="tomato"
+        else if(r===null||r==="")color="grey"
+        if(r==="")r="Empty-String"
+        if(lastdiv&&lastdiv.style.color==color){
+          lastdiv.appendChild(document.createElement("br"));
+          lastdiv.appendChild(document.createTextNode(r));
+        }else{
+          let d=document.createElement("div");
+          d.style.color=color;
+          lastdiv=d;
+          d.innerText=String(r);
+          js.appendChild(d);
+        }
+        iserr=false;
+      }
+      try{
+        eval(code.value);
+      }catch(err){
+        iserr=true;
+        print(err);
+      }
+      hideConsole(false);
+      }catch(er){alert("Process ERROR:"+er)}
+    }
+    function hideConsole(b){
+      try{
+      play({
+        duration:"0.4s",
+        anchor:"console",
+        direction:b?"normal":"reverse",
+        rules:[
+          ["console","hideconsole"],
+          ["output","hideoutput"],
+          ["run","showRunBtn"]
+        ],
+        end:()=>{
+          ide("console").style.display=b?"none":"block";
+          ide("run").style.display=b?"block":"none";
+        }
+      });
+      }catch(er){alert(er)}
+    }
+    function showRun(b){
+      play({
+        duration:"0.4s",
+        direction:b?"normal":"reverse",
+        anchor:"run",
+        start:()=>{
+          ide("charPannel").style.display=b?"none":"flex";
+        },
+        end:()=>{
+          ide("run").style.display=b?"block":"none";
+        },
+        rules:[
+          ["run","showRunBtn"]
+        ]
+      });
+    }
+    function typeChar(e){
+      e.preventDefault();
+      let cr=e.target.innerText;
+      let pos=code.selectionStart;
+      let former=code.value.substring(0,pos);
+      let latter=code.value.substring(pos);
+      code.value=former+cr+latter;
+      code.selectionStart=pos+1;
+      code.selectionEnd=pos+1;
+      input_();
+    }
+    function showTools(b){
+      play({
+        duration:"0.2s",
+        anchor:"tools_",
+        direction:b?"reverse":"normal",
+        rules:[
+          ["tools_","hideconsole"],
+          ["tools","hideToolBar"]
+        ],
+        end:()=>{
+          if(!b)ide("tools_").style.display="none";
+        }
+      });
+    }
+    function search(b){
+      b=!b;//显示为true
+      let dis=ide("search").style.display;
+      //如果已经显示了那就直接不执行
+      if(b&&dis=="block")return;
+      play({
+        duration:"0.6s",
+        direction:b?"normal":"reverse",
+        anchor:"search",
+        start:()=>{
+          ide("code").style["padding-top"]=
+            ide("row").style["padding-top"]=
+            b?ide("search").offsetHeight+"px":"0"
+        },
+        end:()=>{
+          ide("search").style.display=b?"block":"none";
+        },
+        rules:[
+          ["search","showRunBtn"]
+        ]
+      });
+    }
+    function useregexp(e){
+      try{
+      let k=e.target;
+      let c=k.getAttribute("checked")==="false";
+      if(c)bubble("输入完整的表达式来使用修饰符")
+      k.style.background=c?"palegreen":"lightgrey";
+      k.setAttribute("checked",c?"true":"false");
+      e.preventDefault();
+      }catch(er){alert(er)}
+    }
+    //这里是多功能区
+    function insertStr(str){
+      let c=cursorPos;
+      let v=code.value;
+      code.value=v.substring(0,c)+str+v.substring(c);
+      cursorPos+=str.length;
+    }
+    function insertColor(){
+      ide("selectColor").click();
+      colorSelected=(color)=>{
+        insertStr(color);
+        codeFocus();
+      }
+    }
+    function insertUUID(){
+      if(!confirm("插入一个随机的UUID"))return;
+      let s="";
+      function u(num){
+        for(let i=0;i<num;i++)
+          s+=Math.floor(Math.random()*16).toString(16);
+        s+="-"
+      }
+      u(8);u(4);u(4);u(4);u(12);
+      s=s.substring(0,s.length-1);
+      insertStr(s);
+      codeFocus();
+    }
+    function insertChar(){
+      let v;
+      v=prompt("源字符串代码：");
+      if(v)insertStr(eval('"'+v+'"'));
+      setTimeout("codeFocus()",10);
+    }
+    function play(opt){
+      /*
+        {
+          duration:number,
+          start:func,
+          end:func,
+          anchor:identify,
+          direction:string
+          rules:[
+            [identify,animation,display]
+          ]
+        }
+      */
+      opt=Object.assign({
+        duration:"1s",
+        start:()=>{},
+        end:()=>{},
+        direction:"normal"
+      },opt);
+      for(let o of opt.rules){
+        let e=ide(o[0]);
+        if(e.style.display=="none"||e.style.display==""){
+          e.style.display=o[2]?o[2]:"block"
+        }
+        e.style.animation=
+          o[1]+" "+opt.duration+" "+opt.direction;
+      }
+      let a=ide(opt.anchor);
+      let end=()=>{
+        for(let o of opt.rules){
+          let e=ide(o[0]);
+          e.style.animation="";
+        }
+        a.removeEventListener("animationend",end);
+        opt.end();
+      }
+      a.addEventListener("animationend",end);
+      opt.start();
+    }
+    //查找选项
+    function getSearchResult(tryToFind,rpl){
+      //使用正则表达式
+      let foo=ide("useregexp").getAttribute("checked")=="true";
+      let s=ide("searchFor").value;
+      if(!s)return false;
+      if(foo){
+        let j=/(?<!\\)\//g;
+        let match=s.match(j);
+        if(match&&match.length==2){
+          let k=s.split(j);
+          let opt=k[2];
+          if(!/g/.test(opt))opt+="g";
+          s=new RegExp(k[1],opt);
+        }else s=new RegExp(s,"g");
+      }
+      let v=code.value;
+      let arr=[];
+      let ind=tryToFind?0:(rpl?code.selectionStart:code.selectionEnd);
+      function again(){
+        if(tryToFind)return false
+        return getSearchResult(true,rpl);
+      }
+      let str=ide("replace").value;
+      //是正则表达式且替换
+      if(foo&&rpl){
+        let text;
+        let cursor;
+        if(rpl=="all"){
+          cursor=v.match(s).length;
+          text=v.replace(s,str);
+        }else if(rpl=="normal"){
+          cursor=getSearchResult()[0];
+          let n=s.toString();
+          n=n.replace(s.source,"").replace(/\//g,"");
+          n=n.replace("g","");
+          s=new RegExp(s.source,n);
+          s.lastIndex=ind;
+          text=v.replace(s,str);
+        }
+        if(text==v)return again();
+        code.value=text;
+        return cursor;
+      }else if(!foo&&rpl){//不是正则表达式但替换
+        if(v.indexOf(s,ind)==-1)return again();
+        let cursor=getSearchResult();
+        if(rpl=="normal"){
+          let k=v.substring(ind).replace(s,str);
+          let x=v.substring(0,ind);
+          code.value=x+k;
+          return cursor;
+        }
+        else if(rpl=="all"){
+          let i=0;
+          let count=0;
+          while(i>=0){
+            count++;
+            v=v.replace(s,str);
+            i=v.indexOf(s);
+          }
+          code.value=v;
+          return count;
+        }
+      }
+      else if(!foo){//不是正则表达式
+        let i=v.indexOf(s,ind);
+        if(i==-1){
+          return again();
+        }
+        return [i,s];
+      }else if(foo){//是正则表达式
+        //v=v.substring(ind);
+        s.lastIndex=ind;
+        let m=s.exec(v);
+        if(m===null){
+          return again();
+        }
+        return [s.lastIndex-m[0].length,m[0]];
+      }
+    }
+    function searchClick(e,rpl){
+      try{
+      e.preventDefault();
+      let tar=getSearchResult(false,rpl);
+      let sch=ide("search");
+      if(tar==false){
+        sch.style.border="4px solid firebrick";
+        bubble("没有发现查找项");
+        return;
+      }else sch.style.border="4px solid gray"
+      if(rpl){
+        let c=ide("replace").value;
+        if(rpl=="all")bubble("替换完成，共替换了"+tar+"个选项");
+        //alert(tar)
+        code.selectionStart=code.selectionEnd=rpl=="all"?0:tar;
+      }else{
+        code.selectionStart=tar[0];
+        code.selectionEnd=tar[0]+tar[1].length;
+      }
+      code.focus();
+      //document.documentElement.scrollTop=0;
+      }catch(err){alert(err)}
+    }
+    //工具
+    function bubble(str){
+      let b=ide("bubble");
+      let t=ide("bubbleText");
+      t.innerText=str;
+      play({
+        start:()=>{
+          b.style.left="calc(50% - "+(b.offsetWidth/2)+"px)";
+        },
+        anchor:"bubble",
+        rules:[
+          ["bubble","showBubble"]
+        ],
+        duration:"3s",
+        end:()=>{
+          b.style.display="none";
+        }
+      });
+    }
+    </script>
+    <style>
+      #noscriptWarning{
+        color:red;
+        font-size:60px;
+      }
+      @keyframes showBubble{
+        0%{
+          opacity:0;
+        }
+        10%{
+          opacity:1;
+        }
+        80%{
+          opacity:1;
+        }
+        100%{
+          opacity:0;
+        }
+      }
+      @keyframes hideToolBar{
+        from{
+          transform:translate(0,0);
+        }
+        to{
+          transform:translate(-100%,0);
+        }
+      }
+      @keyframes hideconsole{
+        from{
+          opacity:1;
+        }
+        to{
+          opacity:0;
+        }
+      }
+      @keyframes hideoutput{
+        from{
+          transform:translate(0,0);
+        }
+        to{
+          transform:translate(0,-100%);
+        }
+      }
+      @keyframes showRunBtn{
+        0%{
+          transform:scale(0,0);
+        }
+        50%{
+          transform:scale(1.2,1.2);
+        }
+        100%{
+          transform:scale(1,1);
+        }
+      }
+      html,body{
+        height:100%;
+        margin:0;
+      }
+      #mydiv{
+        margin:auto;
+        height:90%;
+        width:95%;
+        border-radius:30px;
+        background-color:#333;
+        border:4px solid darkgray;
+        position:relative;
+        top:0;
+        display:flex;
+        flex-direction:row;
+        overflow:hidden;
+      }
+      #run{
+        position:fixed;
+        box-shadow:0 0 30px;
+        background-color:lime;
+        border-radius:1000px;
+        width:150px;
+        height:150px;
+        bottom:13%;
+        right:100px;
+      }
+      #code,#row{
+        font-size:50px;
+        color:white;
+        border:3px solid silver;
+        background-color:rgba(0,0,0,0);
+        padding-bottom:550px;
+        
+        line-height:60px;
+      }
+      #code{
+        overflow:scroll;
+        flex-shrink:1;
+        width:100%;
+        white-space:nowrap;
+        padding-left:20px;
+      }
+      #row{
+        flex-shrink:0;
+        overflow-y:hidden;
+        overflow-x:auto;
+      }
+      #runText{
+        font-size:50px;
+        color:aliceblue;
+        margin:auto;
+        position:relative;
+        top:calc(50% - 25px);
+        font-family:"sans-serif";
+        text-align:center;
+        height:30px;
+        font-weight:bold;
+      }
+      .blackmask{
+        display:none;
+        background:rgba(0,0,0,0.7);
+        height:100%;
+        width:100%;
+        position:fixed;
+        top:0;
+        left:0;
+      }
+      #output{
+        position:absolute;
+        height:70%;
+        width:calc(100% - 32px);
+        margin:0;
+        float:top;
+        border-radius:0 0 20px 20px;
+        border:6px solid #ca0;
+        background:#222;
+        color:white;
+        top:-6px;
+        overflow:scroll;
+        font-size:50px;
+        padding:10px;
+        position:absolute;
+      }
+      #charPannel{
+        padding:20px 0;
+        height:5%;
+        min-height:100px;
+        width:100%;
+        overflow-x:scroll;
+        overflow-y:hidden;
+        position:fixed;
+        bottom:0%;
+        background:rgba(100,100,100,0.6);
+        display:none;
+        justify-content:center;
+        float:center;
+      }
+      .newChar{
+        background-color:white;
+        text-align:center;
+        border-radius:10px;
+        height:calc(100% - 10px);
+        min-width:80px;
+        font-size:80px;
+        margin:10px 5px;
+        /*for the template*/
+        display:none;
+      }
+      #more{
+        position:relative;
+        top:10px;
+        left:1%;
+        margin:20px;
+      }
+      #tools{
+        position:absolute;
+        width:50%;
+        background-color:#444;
+        height:100%;
+        box-shadow:4px 0px 30px;
+      }
+      #toolItem{
+        width:98%;
+        height:7%;
+        border:3px solid #555;
+        margin:0;
+        color:whitesmoke;
+        text-align:center;
+        font-size:50px;
+        min-height:100px;
+        overflow-x:hidden;
+        overflwo-y:hidden;
+        white-space:nowrap;
+      }
+      .middle{
+        transform:translate(0,50%);
+        height:50px;
+      }
+      #search{
+        width:calc(94% - 8px);
+        min-width:600px;
+        height:10%;
+        position:absolute;
+        max-width:1000px;
+        right:0;
+        background-color:#555;
+        border:4px solid gray;
+        border-radius:30px;
+        min-height:160px;
+        padding:3%;
+        font-size:30px;
+        overflow:hidden;
+        color:white;
+        display:none;
+      }
+      .searching{
+        position:relative;
+        margin:1% 0;
+        height:40%;
+        width:60%;
+        font-size:inherit;
+        background:#333;
+        border:2px solid grey;
+        color:inherit;
+        overflow:scroll;
+      }
+      #searchPannel{
+        width:36%;
+        height:100%;
+        border-left:5px solid grey;
+        right:0;
+        top:0;
+        position:absolute;
+        display:flex;
+        flex-wrap:wrap;
+        justify-content:center;
+        padding:1%;
+        display:block;
+      }
+      .schbtn{
+        border-radius:10px;
+        border:3px solid grey;
+        background:darkgrey;
+        width:100%;
+        height:100%;
+        font-size:inherit;
+        color:inherit;
+      }
+      #useregexp{
+        background:lightgray;
+        color:dimgray;
+      }
+      #bubble{
+        background:rgba(100,100,100,0.7);
+        color:white;
+        position:fixed;
+        width:auto;
+        margin:auto;
+        height:80px;
+        border-radius:1000px;
+        bottom:15%;
+        display:none;
+        font-size:40px;
+        line-height:80px;
+        min-width:20%;
+        text-align:center;
+        padding:0 30px;
+        overflow:hidden;
+      }
+    </style>
+    <div id="more">
+    <svg  onclick="showTools(true)" version="1.1" baseProfile="full" width="50" height="50" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+      <line x1="0" y1="80" x2="300" y2="80" stroke="grey" stroke-width="30px"/>
+      <line x1="0" y1="150" x2="300" y2="150" stroke="grey" stroke-width="30px"/>
+      <line x1="0" y1="220" x2="300" y2="220" stroke="grey" stroke-width="30px"/>
+    </svg>
+    </div>
+    <div id="mydiv">
+      <div id="search">
+      <input id="searchFor" class="searching" type="text">
+      <br><input id="replace" class="searching" type="text">
+      <!--div id="searchPannel"-->
+        <table id="searchPannel" readIndex="0" border="0" cellspacing="13">
+          <tr height="30%">
+            <td width="35%"><input onmousedown="searchClick(event)" type="button" class="schbtn" value="查找"></td>
+            <td width="35%"><input type="button" class="schbtn" value="替换" onmousedown="searchClick(event,'normal')"></td>
+          </tr>
+          <tr height="30%">
+            <td><input type="button" onmousedown="searchClick(event,'all')" class="schbtn" value="全替换"></td>
+            <td><input onmousedown="search(true)" type="button" class="schbtn" style="background:orangered" value="关闭"></td>
+          </tr>
+          <tr height="30%">
+            <th colspan="2" width="100%">
+              <input type="button" id="useregexp" checked="false" class="schbtn" value="使用RegExp" onmousedown="useregexp(event)">
+            </th>
+          </tr>
+        </table>
+    <!--/div-->
+    </div>
+      <textarea id="row" cols="2" readonly="readonly"></textarea>
+      <textarea id="code" onselect="event.preventDefault()" 
+        onfocus="showRun(false)" onblur="showRun(true)" onscroll="scroll_()" oninput="input_(event)">
+/*print is a function which can
+ *-print values on the console
+ *
+ *[JavaScript Editor v3.5]
+ *[Author FancyFlame]
+ e.g. print("hello world");
+*/
+</textarea>
+    </div>
+    <div id="run" onclick="run()">
+      <p id="runText">Run</p>
+    </div>
+    <div id="charPannel">
+        <span id="newChar" class="newChar" onmousedown="typeChar(event)">{}</span>
+    </div>
+    <div id="console" class="blackmask" onclick="hideConsole(true)">
+      <div id="output" onclick="event.cancelBubble=true"></div>
+    </div>
+    <div id="tools_" class="blackmask" onclick="showTools(false)" style="background:rgba(0,0,0,0.2)">
+      <div id="tools" onclick="event.cancelBubble=true">
+        <div id="toolItem" style="display:none"><div class="middle"></div></div>
+      </div>
+    </div>
+    <p id="canAutoSave" style="font_size:10px"></p>
+    <div id="hidden" style="display:none">
+      <input type="color" id="selectColor" onchange="colorSelected(event.target.value);colorSelected=()=>{}">                
+    </div>
+    <div id="bubble">
+      <span id="bubbleText">提示</span>
+    </div>
+  </body>
+</html>
