@@ -1,0 +1,560 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <!--meta name="theme-color" content=""-->
+    <meta content="text/html; charset=utf-8" http-equiv="content-type"/>
+    <meta content="user-scalable=0;" name="viewport" />
+    <title>SVG 涂鸦</title>
+  </head>
+  <noscript>
+    <mark style="font-size:60px;color:red;">请使用带JavaScript的浏览器！</mark>
+  </noscript>
+  <body onload="load_()" onunload="confirmLeave(event)">
+    <style>
+      *{
+        font-family:sans-serif;
+      }
+      html,body{
+        height:100%;
+        margin:0;
+      }
+      #ctnr{
+        border:4px solid black;
+        margin:5px;
+        box-sizing:100%;
+        height:auto;
+        flex-shrink:0;
+      }
+      #svg{
+        width:100%;
+        height:100%;
+      }
+      #selectPenColor{
+        width:100%;
+        height:100%;
+        position:absolute;
+      }
+      #selectFillColor{
+        width:100px;
+        height:100px;
+        position:absolute;
+        left:45px;
+        top:50px;
+      }
+      #selectBackcolor{
+        width:100px;
+        height:100px;
+        position:absolute;
+        left:12px;
+        top:85px;
+      }
+      #colors{
+        position:relative;
+        width:35%;
+        height:200px;
+        display:inline-block;
+      }
+      #penInfo{
+        width:100px;
+        height:100px;
+        line-height:100px;
+        display:inline-block;
+        position:relative;
+      }
+      #selectPenSize{
+        width:50%;
+        height:100px;
+        margin:0;
+      }
+      #showPenSize{
+        font-size:80px;
+        font-weight:bold;
+        width:auto;
+        margin:auto;
+        position:absolute;
+        left:0px;
+        top:0px;
+        left:auto;
+      }
+      #useFill{
+        width:40px;
+        height:40px;
+      }
+      #useFillPannel{
+        position:absolute;
+        font-size:30px;
+        display:block;
+        left:150px;
+        top:50%;
+      }
+      #saveSvg{
+        display:block;
+        width:100%;
+        height:100px;
+        color:white;
+        border:10px solid dodgerblue;
+        border-radius:10px;
+        background-color:deepskyblue;
+        font-size:30px;
+        margin:20px auto;
+      }
+      .fileoper{
+        width:50%;
+        margin:4px;
+        height:60px;
+        border:3px solid dodgerblue;
+        color:dodgerblue;
+        background-color:white;
+        border-radius:10px;
+        font-size:30px;
+      }
+      .operate{
+        height:100px;
+        width:auto;
+        margin:1px;
+        font-size:50px;
+        display:inline-block;
+        background-color:limegreen;
+        border:3px solid green;
+        color:white;
+        border-radius:5px;
+      }
+      #operateCtnr{
+        position:relative;
+        display:flex;
+        float:right;
+        flex-direction:column;
+      }
+      #fileOperate{
+        margin:auto;
+        display:flex;
+        width:70%;
+        flex-wrap:nowrap;
+        justify-content:space-between;
+      }
+      #tools{
+        border:3px solid goldenrod;
+        background-color:gold;
+        color:purple;
+        border-radius:5px;
+        height:60px;
+        width:100px;
+        position:absolute;
+        left:180px;
+        font-size:40px;
+      }
+      #totalDiv{
+        display:flex;
+        height:100%;
+        width:100%;
+        flex-direction:column;
+        justify-content:center;
+      }
+      #palette{
+        position:absolute;
+        right:0px;
+        width:100%;
+        height:130px;
+        background-color:white;
+        border:3px solid silver;
+        bottom:0;
+        box-sizing:border-box;
+        display:flex;
+        flex-direction:row;
+      }
+      #colorBlock{
+        border-radius:10px;
+        width:100px;
+        height:100px;
+        border:0;
+        box-shadow:1px 1px 5px grey;
+        margin:7px;
+      }
+      #operatePannel{
+        position:relative;
+        flex-shrink:1;
+        flex-grow:1;
+        height:100%;
+      }
+    </style>
+    <script>
+      let viewBox=600;
+      let defaultFilename="MySVG";
+      let svg;//只修改一次
+      let draw;//只修改一次
+      let svgbgc;//只修改一次
+      let tools;//只修改一次
+      let maskarea;//只修改一次
+      let options_={
+        size:12,
+        color:"#000000",
+        fill:"#FF0000",
+        back:"#FFFFFF",
+        tool:0,
+        picSize:600,
+        useFill:false,
+        palette:[
+          "#000000","#ffffff","#ff0000","#00ff00",
+          "#0000ff","#ff00ff","#ffff00","#00ffff"
+        ]
+      }
+      let options={};
+      try{
+      for(let i of Object.keys(options_)){
+        Object.defineProperty(options,i,{
+          writeable:true,
+          configurable:true,
+          set:(v)=>{
+            options_[i]=v;
+            if(localStorage){
+              localStorage.setItem("user-opt",JSON.stringify(options_));
+            }
+          },
+          get:()=>{
+            return options_[i]
+          }
+        });
+      }
+      }catch(er){alert(er)}
+      const toolList=["画笔","剪刀","针线"]
+      //单笔变量
+      let poi=[];
+      let redoStep=[];
+      let redoMask=[];
+      let svgpath;
+      let svgcircle;
+      let circleOffset=0;
+      
+      function createSVGEle(tag){
+        return document.createElementNS("http://www.w3.org/2000/svg",tag);
+      }
+      function changeTool(){
+        let size=options.tool;
+        size++;
+        size=size>2?0:size;
+        options.tool=size;
+        tools.innerText=toolList[size];
+      }
+      /*setInterval('ide("pos").innerText=markCPU;'+
+        'markCPU=!markCPU;',0);*/
+      function ide(n){
+        return document.getElementById(n);
+      }
+      function revoke(){
+        try{
+        let y=draw.lastChild;
+        if(!y)return;
+        draw.removeChild(y);
+        redoStep.unshift(y);
+        if(y.getAttribute("isMaskStep")){
+          let z=maskarea.lastChild;
+          redoMask.unshift(z);
+          maskarea.removeChild(z);
+        }
+        }catch(err){document.write('<textarea style="width:100%;height:100%">'+svg.innerHTML+"</textarea>")}
+      }
+      function redo(){
+        if(redoStep.length<1)return;
+        let e=redoStep.shift();
+        draw.appendChild(e);
+        if(e.getAttribute("isMaskStep")){
+          let z=redoMask.shift();
+          maskarea.appendChild(z);
+        }
+      }
+      
+      //落笔前
+      function startDrawing(e){
+        try{
+          if(e)e.preventDefault();
+        let circleList=createSVGEle("g");
+        let cont=createSVGEle("g");//包装用
+        let path=createSVGEle("path");
+        path.setAttribute("stroke-width",options.size);
+        let fillc;
+        let strokec;
+        if(options.tool==0){
+          strokec=options.color;
+          fillc=options.fill;
+        }else if(options.tool==1){
+          strokec=fillc="black"
+        }else{
+          strokec=fillc="white"
+        }
+        if(!options.useFill)fillc="none";
+        path.setAttribute("stroke",strokec);
+        path.setAttribute("fill",fillc);
+        circleList.setAttribute("fill",strokec);
+        cont.appendChild(path);
+        cont.appendChild(circleList);
+        (options.tool==0?draw:maskarea).appendChild(cont);
+        poi=[];
+        svgpath=path;
+        svgcircle=circleList;
+        circleOffset=0;
+        if(options.tool!=0){
+          let sym=createSVGEle("g");
+          sym.setAttribute("isMaskStep","t");
+          draw.appendChild(sym);
+        }
+        drawing(e);
+        }catch(err){alert(err)}
+      }
+      //画画时
+      function drawing(e){
+        try{
+          e.preventDefault();
+        redoStep=[];
+        let tch=e.changedTouches[0];
+        let div=ide("ctnr");
+        let multi=ctnr.clientWidth/viewBox;
+        let x=(tch.pageX-div.offsetLeft)/multi;
+        let y=(tch.pageY-div.offsetTop)/multi;
+        x=Math.round(x);
+        y=Math.round(y);
+        poi=poi.concat([x,y]);
+        let str="M";
+        let lsd=false;//lastIsDot用来标记是否需要添加Q或L
+        let lic=false;//lastIsCircle确定上一次是不是圆
+        for(let i=0;i<poi.length;i+=2){
+          let cur=poi.slice(i,i+2);
+          function drawdot(){
+            let circle=createSVGEle("circle");
+            circle.setAttribute("cx",cur[0]);
+            circle.setAttribute("cy",cur[1]);
+            circle.setAttribute("r",options.size/2);
+            svgcircle.appendChild(circle);
+          }
+          let last=poi.slice(i-2,i);
+          let isLastOne=i+2>=poi.length;
+          //这里开始
+          
+          let middle=[
+            (last[0]+cur[0])/2,
+            (last[1]+cur[1])/2
+          ]
+          if(i==0){//第一个
+            str+=cur.join(" ");
+            drawdot();
+            continue
+          }
+          let pleng=poi.length;
+          if(pleng<6){//不大于3个点没法子平滑
+            if(pleng==4)
+              str+="L"+poi.slice(2).join(" ")
+            else if(pleng==6)
+              str+="Q"+poi.slice(2).join(" ")
+            break;
+          }
+          let length=Math.sqrt((cur[0]-last[0])**2+(cur[1]-last[1])**2);
+          /*if(length<5){
+            drawdot();
+            str+=(lsd?"":"L")+cur.join(" ")+" ";
+            lsd=true;
+            continue;
+          }else{*/
+            str+=lsd||i==2?"Q":"";
+            lsd=false;
+          //}
+          let handle;
+          if(i==2)continue;//第二个点直接跳过
+          if(isLastOne){
+            handle=last.concat(cur);
+          }else{
+            handle=last.concat(middle);
+          }
+          //handle=[Number(handle[0].toFixed(5)),Number(handle[1].toFixed(5))]
+          let addition=handle.join(" ")+" ";
+          if(!/NaN/.test(addition))str+=addition;
+        }
+        //setTimeout("alert('"+str+"')",50);
+        svgpath.setAttribute("d",str);
+        }catch(err){alert(err)}
+      }
+      
+      
+      function output(){
+        document.write(
+          "<body>"+
+          '<textarea style="width:100%;height:800px>'+
+          ide("svg").outerHTML+
+          "</textarea>"+
+          "</body>"
+        )
+      }
+      //初始化
+      function load_(){
+        try{
+          let q=localStorage.getItem("user-opt");
+          if(!q)throw "";
+          options_=Object.assign(options_,JSON.parse(q));
+        }catch(err){}
+        svg=ide("svg");
+        draw=ide("draw");
+        tools=ide("tools");
+        svgbgc=ide("SVGbackground");
+        maskarea=ide("maskarea");
+        ide("selectPenColor").value=options.color;
+        ide("selectPenSize").value=options.size;
+        ide("selectFillColor").value=options.fill;
+        ide("selectBackcolor").value=options.back;
+        ide("useFill").checked=options.useFill;
+        tools.innerText=toolList[options.tool];
+        svgbgc.setAttribute("fill",options.back)
+        loadPenInfo();
+      }
+      function loadPenInfo(){
+        let s=ide("showPenSize");
+        s.innerText=options.size;
+        let c=options.color.
+          replace("#","").match(/.{2}/g);
+        let color=0;
+        for(let i of c){
+          let y=parseInt(i,16);
+          color+=y;
+        }
+        color/=3;
+        if(color>0xFF*0.65)//黑色字
+          color="#555"
+        else color="white"
+        //let out="#"+Array(4).join(color);
+        s.style.color=color;
+      }
+      function saveSvg(){
+        let m=prompt("输入文件名",defaultFilename);
+        if(!m)return;
+        defaultFilename=m;
+        m+=".svg";
+        confirmbgc();
+        let blob=new Blob([svg.outerHTML],{'Content-Type':'application/octet-stream'});
+        blob=URL.createObjectURL(blob);
+        svgbgc.setAttribute("fill",options.back);
+        let a=ide("download");
+        a.href=blob;
+        a.download=m;
+        a.click();
+      }
+      function confirmbgc(){
+        if(!confirm("要使用背景颜色吗？如不使用则为透明"))
+          svgbgc.setAttribute("fill","none");
+      }
+      function saveAsPng(){
+        let filename=prompt("输入文件名(自动加后缀)",defaultFilename);
+        if(!filename)return;
+        defaultFilename=filename;
+        filename+=".png";
+        confirmbgc();
+        let code=svg.outerHTML;
+        svgbgc.setAttribute("fill",options.back);
+        let blob="data:image/svg+xml;base64,"+window.btoa(code);
+        let image=ide("img");
+        image.src=blob;
+        function loaded(){
+          image.removeEventListener("load",loaded);
+          try{
+          let size=prompt("分辨率(NxN)",options.picSize);
+          if(!size||isNaN(size=parseInt(size)))
+            return;
+          options.picSize=size;
+          let img=document.createElement("canvas")
+          let ctx=img.getContext('2d');
+          img.height=img.width=size;
+          ctx.drawImage(
+            image,0,0,size,size,0,0,size,size
+          );
+          let a=ide("download");
+          a.href=img.toDataURL('image/png');
+          a.download=filename;
+          a.click();
+          }catch(err){alert(err)}
+        };
+        image.addEventListener("load",loaded);
+      }
+      function openread(){
+        if(draw.innerHTML.replace(/\s/g,"")&&!confirm("如果继续将丢失当前内容，确定吗？"))return;
+        else ide("openread").click();
+      }
+      function loadfile(file){
+        try{
+        ide("openread").value=null;
+        let fr=new FileReader();
+        fr.onerror=(err)=>{
+          alert("读取文件出错：\n"+err);
+        };
+        fr.onload=(r)=>{
+          try{
+            let s=document.createElement("div");
+            s.innerHTML=r.target.result;
+            s=s.firstChild;
+            if(s.tagName!="svg"||
+              s.getAttribute("isscrawlproj")!="true")
+              throw "Not standard SVG project file.";
+            ide("ctnr").innerHTML="";
+            ide("ctnr").appendChild(s);
+            let back=ide("SVGbackground").getAttribute("fill");
+            if(back)options.fill=back;
+            load_();
+          }catch(err){
+            alert("请读取正确的由此网页保存的.svg文件。\n"+
+              "您可能发现了我们的标识属性，但是请不要擅自添加它。这只会影响"+
+              "我们的判断。如果确实无法读取由此网页保存的.svg文件，请联系"+
+              "开发者。错误信息：\n"+err);
+          }
+        };
+        fr.readAsText(file);
+        }catch(err){alert(err)}
+      }
+      function suckColor(ev){
+        
+      }
+    </script>
+    <!--调色板-->
+    <div id="totalDiv">
+    <!--涂鸦画板-->
+    <div id="ctnr" ontouchmove="drawing(event)" ontouchstart="startDrawing(event)" oontouchend="alert(draw.innerHTML)">
+    <svg id="svg" isscrawlproj="true" version="1.1" baseProfile="full" viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg">
+      <mask id="contentmask" stroke-linecap="round">
+        <rect width="100%" height="100%" fill="white"></rect>
+        <g id="maskarea"></g>
+      </mask>
+      <rect id="SVGbackground" x="0" y="0" width="100%" height="100%"></rect>
+      <g id="draw" stroke-linecap="round" stroke-linejoin="round" mask="url(#contentmask)"></g>
+    </svg>
+  </div>
+  
+  <!--操作面板-->
+  <div id="operatePannel">
+    <!--隐藏-->
+<div style="display:none">
+  <a id="download"></a>
+  <canvas id="png"></canvas>
+  <img id="img">
+  <input type="file" id="openread" onchange="loadfile(this.files[0])">
+  </div>
+<div id="colors">
+  <input id="selectBackcolor" type="color" onchange="options.back=this.value;ide('SVGbackground').setAttribute('fill',this.value)">
+  <input id="selectFillColor" type="color" onchange="options.fill=this.value">
+  <div id="penInfo">
+    <input id="selectPenColor" type="color" onchange="options.color=this.value;loadPenInfo(event)">
+    <label id="showPenSize" for="selectPenColor">?</label>
+  </div>
+  <span id="useFillPannel">使用填充<input type="checkBox" id="useFill" onchange="options.useFill=this.checked"></span>
+  <button id="tools" onclick="changeTool()">?</button>
+</div>
+<input id="selectPenSize" max="30" min="1" type="range" oninput="options.size=this.value;loadPenInfo(event)">
+<div id="operateCtnr">
+  <input type="button" class="operate" value="撤销" onclick="revoke()">
+  <input type="button" class="operate" value="重做" onclick="redo()">
+</div>
+<div id="fileOperate">
+  <button class="fileoper" onclick="saveSvg()">保存SVG</button>
+  <button class="fileoper" onclick="openread()">打开文件</button>
+  <button class="fileoper" onclick="saveAsPng()">导出为png</button>
+</div>
+<div id="palette" style="display:none">
+      <div id="colorBlock"></div>
+</div>
+</div>
+</div>
+  </body>
+</html>
